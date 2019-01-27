@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"git/repos/stock/stocksearch"
-	"git/repos/stock/utils"
+	"github.com/krunalnaikgo/stockmonitor/constants"
+	"github.com/krunalnaikgo/stockmonitor/stocksearch"
+	"github.com/krunalnaikgo/stockmonitor/utils"
 
 	"github.com/aws/aws-lambda-go/lambda"
 )
@@ -26,6 +27,7 @@ func main() {
 	stockName := utils.GetEnvValue("STOCK")
 	apiKey := utils.GetEnvValue("APIKEY")
 	dynamodbTableName := utils.GetEnvValue("DYNAMODBTABLE")
+	historyTableName := utils.GetEnvValue("HISTORYDBTABLE")
 	boughtPrice := utils.GetEnvValue("BOUGHTSTOCKPRICE")
 	boughtStockSize := utils.GetEnvValue("BOUGHTSTOCKSIZE")
 	stock := stocksearch.StockPriceDetails{StockName: stockName,
@@ -38,8 +40,8 @@ func main() {
 	//	"%s and Close is: %s", stockName,
 	//	foundOpenVal, foundCloseVal)
 
-	utils.CreateDynamodbTable("us-east-1", dynamodbTableName)
-	queryOpen, queryClose, highPrice, _, highPriceDate := utils.QueryTable("us-east-1",
+	utils.CreateDynamodbTable(constants.AWSREGION, dynamodbTableName, "stockName")
+	queryOpen, queryClose, highPrice, _, highPriceDate := utils.QueryTable(constants.AWSREGION,
 		dynamodbTableName, stockName)
 
 	checkOpenIncrease := utils.CheckIncreaseValues(queryOpen, foundOpenVal)
@@ -68,10 +70,10 @@ func main() {
 	}
 
 	if checkCloseIncrease {
-		textCloseOut = fmt.Sprintf("StockName : %s Close Value Increased from : %f to : %f ", stockName,
+		textCloseOut = fmt.Sprintf("StockName : %s Close Value Increased from : %f to : %f \n", stockName,
 			queryClose, foundCloseVal)
 	} else {
-		textCloseOut = fmt.Sprintf("StockName : %s Close Value Decreased from : %f to : %f ", stockName,
+		textCloseOut = fmt.Sprintf("StockName : %s Close Value Decreased from : %f to : %f \n", stockName,
 			queryClose, foundCloseVal)
 	}
 
@@ -87,24 +89,32 @@ func main() {
 	calcGain := utils.CalculateProfitOrLoss(floatBoughtPrice, maxHighPrice, floatBoughtSize)
 
 	// take Gain value it can be loss or profit for today
-	textGainOut := fmt.Sprintf("StockName : %s ,Gain Value For Today is : %f ", stockName,
+	textGainOut := fmt.Sprintf("StockName : %s ,Gain Value For Today is : %f \n", stockName,
 		calcGain)
 
+	todayDate := time.Now().Format(constants.TIMEFORMAT)
+
 	// calculate maximum price since buy
-	textMaxHighPrice := fmt.Sprintf("StockName : %s , Maxium High Price since Bought is : %f  and Date is :%s", stockName,
+	textMaxHighPrice := fmt.Sprintf("StockName : %s , Maxium High Price since Bought is : %f  and Date is :%s \n", stockName,
 		maxHighPricedb, maxHighPriceDatedb)
 
 	// It will update table
-	utils.UpdateTable("us-east-1", dynamodbTableName,
+	utils.UpdateTable(constants.AWSREGION, dynamodbTableName,
 		strOpenVal, strCloseVal, strHighPriceVal, stockName,
 		maxHighPriceDatedb)
 
-	finalTextBody := fmt.Sprintf("%s /n %s \n %s \n  %s ", textOpenOut, textCloseOut,
-		textGainOut, textMaxHighPrice)
+	// create History Table
+	utils.CreateDynamodbTable(constants.AWSREGION, historyTableName, "HighPriceDate")
+	utils.UpdateHistoryTable(constants.AWSREGION, historyTableName, stockName, todayDate, fmt.Sprintf("%f", calcGain))
+	outMap := utils.QueryHistoryTable(constants.AWSREGION, historyTableName, stockName)
+	//fmt.Println("OutMap is: Main Routine ", outMap)
+	outStringHistory := utils.Get5HistoryDb(outMap)
+
+	finalTextBody := fmt.Sprintf("%s /n %s \n %s \n  %s \n %s \n ", textOpenOut, textCloseOut,
+		textGainOut, textMaxHighPrice, outStringHistory)
 	toEmail := utils.GetEnvValue("TOEMAIL")
 	fromEmail := utils.GetEnvValue("FROMEMAIL")
-	todayDate := time.Now().Format("2006-01-02")
-	notificationSubject := fmt.Sprintf("Stock Notification for Today: %s %s \n\n", stockName  ,todayDate)
+	notificationSubject := fmt.Sprintf("Stock Notification for Today: %s %s \n\n", stockName, todayDate)
 	snsDetailsObj := utils.SNSDetails{
 		AwsRegion: "us-east-1",
 		FromEmail: fromEmail,

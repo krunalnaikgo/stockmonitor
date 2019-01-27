@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"git/repos/stock/utils"
+	"github.com/krunalnaikgo/stockmonitor/utils"
 	"strconv"
 )
 

@@ -2,9 +2,11 @@ package utils
 
 import (
 	"fmt"
-	"log"
+	"github.com/krunalnaikgo/stockmonitor/constants"
+	log "github.com/sirupsen/logrus"
 	"net/smtp"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,12 +29,19 @@ type SNSDetails struct {
 	TextBody  string
 }
 
-type QeuryStock struct {
-	StockName string `json:"stockName" dynamodbav:"stockName"`
-	OpenVal   string `json:"OpenVal" dynamodbav:"OpenVal"`
-	CloseVal  string `json:"CloseVal" dynamodbav:"CloseVal"`
-	HighPrice string `json:"HighPrice" dynamodbav:"HighPrice"`
+type QueryStock struct {
+	StockName     string `json:"stockName" dynamodbav:"stockName"`
+	OpenVal       string `json:"OpenVal" dynamodbav:"OpenVal"`
+	CloseVal      string `json:"CloseVal" dynamodbav:"CloseVal"`
+	HighPrice     string `json:"HighPrice" dynamodbav:"HighPrice"`
 	HighPriceDate string `json:"HighPriceDate" dynamodbav:"HighPriceDate"`
+}
+
+type QueryHistoryStock struct {
+	StockName       string `json:"stockName" dynamodbav:"stockName"`
+	HighPriceDate   string `json:"HighPriceDate" dynamodbav:"HighPriceDate"`
+	CalGainHistory  string `json:"calGain" dynamodbav:"calGain"`
+	NumberIncrement string `json:"NumberInc" dynamodbav:"NumberInc"`
 }
 
 func GetCurrentTime() string {
@@ -185,7 +194,7 @@ func getDynamodbTable(awsRegion string, tableName string) bool {
 	return foundTable
 }
 
-func CreateDynamodbTable(awsRegion string, tableName string) {
+func CreateDynamodbTable(awsRegion string, tableName string, keyName string) {
 	tableFound := getDynamodbTable(awsRegion, tableName)
 	if !tableFound {
 		newsess, err := session.NewSession(&aws.Config{
@@ -200,13 +209,13 @@ func CreateDynamodbTable(awsRegion string, tableName string) {
 		input := &dynamodb.CreateTableInput{
 			AttributeDefinitions: []*dynamodb.AttributeDefinition{
 				{
-					AttributeName: aws.String("stockName"),
+					AttributeName: aws.String(keyName),
 					AttributeType: aws.String("S"),
 				},
 			},
 			KeySchema: []*dynamodb.KeySchemaElement{
 				{
-					AttributeName: aws.String("stockName"),
+					AttributeName: aws.String(keyName),
 					KeyType:       aws.String("HASH"),
 				},
 			},
@@ -263,6 +272,37 @@ func UpdateTable(awsRegion string, tableName string, openVal string, closeVal st
 	log.Println(resp)
 }
 
+func UpdateHistoryTable(awsRegion string, tableName string, stockName string, HighPriceDate string, calGain string) {
+	newsess, err := session.NewSession(&aws.Config{
+		Region: aws.String(awsRegion)},
+	)
+
+	if err != nil {
+		log.Fatal("Got Error getS3Buckets: ", err)
+	}
+
+	svc := dynamodb.New(newsess)
+	params := &dynamodb.UpdateItemInput{
+		TableName: aws.String(tableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			"HighPriceDate": {
+				S: aws.String(HighPriceDate),
+			},
+		},
+		UpdateExpression: aws.String("set stockName = :c, calGain = :p"),
+		ExpressionAttributeValues: map[string]*dynamodb.AttributeValue{
+			":c": {S: aws.String(stockName)},
+			":p": {S: aws.String(calGain)},
+		},
+		ReturnValues: aws.String(dynamodb.ReturnValueAllNew),
+	}
+	resp, err := svc.UpdateItem(params)
+	if err != nil {
+		log.Fatalln("Got Error UpdateHistoryTable", err)
+	}
+	log.Println(resp)
+}
+
 func QueryTable(awsRegion string, tableName string, stockName string) (float64, float64, float64, string, string) {
 	newsess, err := session.NewSession(&aws.Config{
 		Region: aws.String(awsRegion)},
@@ -291,7 +331,7 @@ func QueryTable(awsRegion string, tableName string, stockName string) (float64, 
 	if err != nil {
 		log.Fatalln("Found Error", err)
 	}
-	var stockQuery []QeuryStock
+	var stockQuery []QueryStock
 	err2 := dynamodbattribute.UnmarshalListOfMaps(resp.Items, &stockQuery)
 	if err2 != nil {
 		log.Fatalln("Found Error", err2)
@@ -312,6 +352,88 @@ func QueryTable(awsRegion string, tableName string, stockName string) (float64, 
 	}
 
 	return foundOpen, foundClose, foundHighPrice, foundStock, foundHighPriceDate
+}
+
+func QueryHistoryTable(awsRegion string, tableName string, stockName string) map[string]string {
+	outMap := make(map[string]string)
+	newsess, err := session.NewSession(&aws.Config{
+		Region: aws.String(awsRegion)},
+	)
+
+	if err != nil {
+		log.Fatal("Got Error getS3Buckets: ", err)
+	}
+
+	svc := dynamodb.New(newsess)
+	queryInput := &dynamodb.ScanInput{
+		TableName: aws.String(tableName),
+	}
+
+	resp, err := svc.Scan(queryInput)
+	if err != nil {
+		log.Fatalln("Found Error", err)
+	}
+	var stockQuery []QueryHistoryStock
+	err2 := dynamodbattribute.UnmarshalListOfMaps(resp.Items, &stockQuery)
+	if err2 != nil {
+		log.Fatalln("Found Error", err2)
+	}
+
+	for _, value := range stockQuery {
+
+		if stockName == value.StockName {
+			outMap[value.HighPriceDate] = value.CalGainHistory
+		}
+	}
+
+	return outMap
+}
+
+func Get5HistoryDb(outMap map[string]string) string {
+	limit := 5
+	start := 0
+	outString := "Gain History is : Date :-> Gain/Loss \n"
+	smallDurationsMap := make(map[string]float64)
+	var smallDurationArray []float64
+	for date, _ := range outMap {
+		t, err := time.Parse(constants.TIMEFORMAT, date)
+		if err != nil {
+			log.Errorln("Error: Get5HistoryDb", err)
+		}
+		end := time.Now()
+		duration := end.Sub(t).Seconds()
+		smallDurationsMap[date] = duration
+		smallDurationArray = append(smallDurationArray, duration)
+	}
+	sort.Float64s(smallDurationArray)
+
+	for _, value := range smallDurationArray {
+		date := getKeyfromValue(smallDurationsMap, value)
+		gain, ok := outMap[date]
+		tempSt := ""
+		if ok {
+			tempSt = fmt.Sprintf("%s : %s \n", date, gain)
+		}
+		//fmt.Println("HistoryDb tempSt", tempSt, value, date)
+		outString = fmt.Sprintf("%s %s \n", outString, tempSt)
+		//fmt.Println("HistoryDb Inside", outString)
+		start = start + 1
+		if start == limit {
+			break
+		}
+	}
+	return outString
+
+}
+
+func getKeyfromValue(outMap map[string]float64, findValue float64) string {
+	var outKey string
+	for key, value := range outMap {
+		if findValue == value {
+			outKey = key
+		}
+	}
+	return outKey
 }
 
 func CheckIncreaseValues(prevValue float64, currValue float64) bool {

@@ -249,7 +249,31 @@
 			"path": "github.com/jmespath/go-jmespath",
 			"revision": "7f6caf09387bc5c62c5e4cfabf96f32528163715",
 			"revisionTime": "2018-07-24T22:08:12Z"
+		},
+		{
+			"checksumSHA1": "UoZxDGHOFe5qPji5V0IJZ+7Sm+A=",
+			"path": "github.com/sirupsen/logrus",
+			"revision": "7d8d63893b994a654b3bc8d16ffd7fb6b9f884a4",
+			"revisionTime": "2019-01-22T19:28:20Z"
+		},
+		{
+			"checksumSHA1": "BSPDVKviqHQaG2phOFN690zAKB8=",
+			"path": "golang.org/x/crypto/ssh/terminal",
+			"revision": "64072686203f69e3fd20143576b27200f18ab0fa",
+			"revisionTime": "2019-01-22T01:17:21Z"
+		},
+		{
+			"checksumSHA1": "zFC76SDSejoq2WPFYziEfa887CM=",
+			"path": "golang.org/x/sys/unix",
+			"revision": "054c452bb702e465e95ce8e7a3d9a6cf0cd1188d",
+			"revisionTime": "2019-01-21T16:41:33Z"
+		},
+		{
+			"checksumSHA1": "Y7nctMxT58lRM78VtElPerhcnEs=",
+			"path": "golang.org/x/sys/windows",
+			"revision": "054c452bb702e465e95ce8e7a3d9a6cf0cd1188d",
+			"revisionTime": "2019-01-21T16:41:33Z"
 		}
 	],
-	"rootPath": "git/repos/stock"
+	"rootPath": "github.com/krunalnaikgo/stockmonitor"
 }
